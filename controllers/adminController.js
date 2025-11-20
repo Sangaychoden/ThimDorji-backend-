@@ -272,6 +272,53 @@ exports.createAdminIfNotExists = async (req, res) => {
 // ======================================================
 // 🔄 FORGOT PASSWORD (OTP Email)
 // ======================================================
+// exports.forgotPassword = async (req, res) => {
+//   try {
+//     const { email } = req.body;
+//     if (!email || email.trim() === "")
+//       return res.status(400).json({ message: "Email is required" });
+
+//     const admin = await Admin.findOne({ email: email.trim().toLowerCase() });
+//     if (!admin)
+//       return res.status(403).json({ message: "Email not registered as admin" });
+
+//     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+//     const expiry = new Date(Date.now() + 5 * 60 * 1000);
+
+//     admin.resetOTP = otp;
+//     admin.resetOTPExpiry = expiry;
+//     await admin.save();
+
+//     // ======================================================
+//     // 🔥 Render-compatible Gmail SMTP (App Password required)
+//     // ======================================================
+//     const transporter = nodemailer.createTransport({
+//       host: "smtp.gmail.com",
+//       port: 465,
+//       secure: true, // true = SSL
+//       auth: {
+//         user: process.env.EMAIL_USER, // your gmail
+//         pass: process.env.EMAIL_PASS, // gmail app password
+//       },
+//     });
+
+//     const mailOptions = {
+//       from: `"Admin Panel" <${process.env.EMAIL_USER}>`,
+//       to: admin.email,
+//       subject: "Admin Password Reset OTP",
+//       text: `Your OTP is ${otp}. It will expire in 5 minutes.`,
+//     };
+
+//     await transporter.sendMail(mailOptions);
+
+//     res.status(200).json({ message: "OTP sent to admin's registered email." });
+
+//   } catch (err) {
+//     console.error("Forgot Password Error:", err);
+//     res.status(500).json({ message: "Server error. Please try again later." });
+//   }
+// };
+
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
@@ -290,20 +337,20 @@ exports.forgotPassword = async (req, res) => {
     await admin.save();
 
     // ======================================================
-    // 🔥 Render-compatible Gmail SMTP (App Password required)
+    // 🔥 SMTP2GO (100% works on Render)
     // ======================================================
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true, // true = SSL
+      host: "mail.smtp2go.com",
+      port: 587,            // recommended STARTTLS port
+      secure: false,        // MUST be false for port 587
       auth: {
-        user: process.env.EMAIL_USER, // your gmail
-        pass: process.env.EMAIL_PASS, // gmail app password
+        user: process.env.SMTP2GO_USER, // your SMTP2GO username
+        pass: process.env.SMTP2GO_PASS, // your SMTP2GO password
       },
     });
 
     const mailOptions = {
-      from: `"Admin Panel" <${process.env.EMAIL_USER}>`,
+      from: `"Admin Panel" <sangaychoden2800@gmail.com>`,   // 👈 your FROM email
       to: admin.email,
       subject: "Admin Password Reset OTP",
       text: `Your OTP is ${otp}. It will expire in 5 minutes.`,
@@ -318,7 +365,6 @@ exports.forgotPassword = async (req, res) => {
     res.status(500).json({ message: "Server error. Please try again later." });
   }
 };
-
 
 // ======================================================
 // ✅ VERIFY OTP
