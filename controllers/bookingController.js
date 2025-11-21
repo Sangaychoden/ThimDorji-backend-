@@ -9,21 +9,32 @@ const { sendMailWithGmailApi } = require("../utils/gmailSender");
 ;
 
 // Booking number generator
+// const generateBookingNumber = async () => {
+//   const lastBooking = await Booking.findOne().sort({ createdAt: -1 });
+//   let nextNumber = 1001;
+//   if (lastBooking && lastBooking.bookingNumber) {
+//     const lastNum = parseInt(lastBooking.bookingNumber.replace('BKN', ''));
+//     if (!isNaN(lastNum)) nextNumber = lastNum + 1;
+//   }
+//   return `RN${nextNumber}`;
+// };
 const generateBookingNumber = async () => {
   const lastBooking = await Booking.findOne().sort({ createdAt: -1 });
-  let nextNumber = 1001;
+
+  let nextNumber = 1;
+
   if (lastBooking && lastBooking.bookingNumber) {
-    const lastNum = parseInt(lastBooking.bookingNumber.replace('BKN', ''));
+    const lastNum = parseInt(lastBooking.bookingNumber.replace("RN-", ""), 10);
     if (!isNaN(lastNum)) nextNumber = lastNum + 1;
   }
-  return `BKN${nextNumber}`;
+
+  // Convert number to 2-digit format: 1 → "01", 2 → "02"
+  const twoDigit = nextNumber.toString().padStart(2, "0");
+
+  return `RN-${twoDigit}`;
 };
 
-
-
-// ------------------------------
 // CREATE BOOKING
-// ------------------------------
 exports.createBooking = async (req, res) => {
   try {
     const {
@@ -57,6 +68,9 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({ message: "Guest details required" });
     }
 
+    // ------------------------------
+    // DATE + ROOM LOGIC
+    // ------------------------------
     const ci = new Date(checkIn);
     const co = new Date(checkOut);
     const nights = Math.ceil((co - ci) / (1000 * 60 * 60 * 24));
@@ -66,7 +80,8 @@ exports.createBooking = async (req, res) => {
     const roomQty = roomRequest.roomsRequested;
 
     const roomDoc = await Room.findOne({ roomType });
-    if (!roomDoc) return res.status(400).json({ message: `Room type ${roomType} not found` });
+    if (!roomDoc)
+      return res.status(400).json({ message: `Room type ${roomType} not found` });
 
     const allowedRooms = roomNumberList[roomType];
     const bookedRooms = await Booking.find({
@@ -76,9 +91,7 @@ exports.createBooking = async (req, res) => {
       status: { $in: ["pending", "confirmed", "guaranteed", "checked_in"] }
     });
 
-    const usedRooms = bookedRooms
-      .flatMap(b => b.assignedRoom || [])
-      .filter(Boolean);
+    const usedRooms = bookedRooms.flatMap(b => b.assignedRoom || []).filter(Boolean);
 
     const freeRooms = allowedRooms.filter(r => !usedRooms.includes(r));
 
@@ -90,22 +103,20 @@ exports.createBooking = async (req, res) => {
 
     const total = roomDoc.price * roomQty * nights;
 
-    const lastBooking = await Booking.findOne().sort({ createdAt: -1 });
-    let nextNumber = 1001;
-    if (lastBooking && lastBooking.bookingNumber) {
-      const lastNum = parseInt(lastBooking.bookingNumber.replace("BKN", ""));
-      if (!isNaN(lastNum)) nextNumber = lastNum + 1;
-    }
-    const bookingNumber = `BKN${nextNumber}`;
+    // ------------------------------
+    // ⭐ FIXED — RN booking number
+    // ------------------------------
+    const bookingNumber = await generateBookingNumber();
 
     // ------------------------------
     // STATUS LOGIC
     // ------------------------------
-    let finalStatus = statusOverride
-      ? statusOverride
-      : transactionNumber
-      ? "confirmed"
-      : "pending";
+    let finalStatus =
+      statusOverride
+        ? statusOverride
+        : transactionNumber
+        ? "confirmed"
+        : "pending";
 
     // ------------------------------
     // CREATE BOOKING
@@ -141,7 +152,7 @@ exports.createBooking = async (req, res) => {
     });
 
     // ------------------------------
-    // SEND STYLED EMAIL
+    // EMAIL SEND — Styled HTML
     // ------------------------------
     try {
       const recipient = isAgencyBooking ? agencyEmail : email;
@@ -195,157 +206,6 @@ exports.createBooking = async (req, res) => {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
-
-// exports.createBooking = async (req, res) => {
-//   try {
-//     const {
-//       firstName,
-//       lastName,
-//       email,
-//       country,
-//       phone,
-//       checkIn,
-//       checkOut,
-//       roomSelection,
-//       meals,
-//       specialRequest,
-//       isAgencyBooking,
-//       agencyName,
-//       agentName,
-//       agencyEmail,
-//       agencyPhone,
-//       transactionNumber,
-//       statusOverride   // ⭐ NEW: admin can send "confirmed" or "guaranteed"
-//     } = req.body;
-
-
-//     // ------------------------------
-//     // VALIDATIONS
-//     // ------------------------------
-//     if (!isAgencyBooking) {
-//       if (!firstName || !lastName || !email || !phone || !country) {
-//         return res.status(400).json({ message: "Missing required guest fields" });
-//       }
-//     }
-
-//     if (isAgencyBooking) {
-//       if (!agencyName) return res.status(400).json({ message: "Agency name is required" });
-//       if (!agentName) return res.status(400).json({ message: "Agent name is required" });
-//       if (!country) return res.status(400).json({ message: "Country is required" });
-//     }
-
-//     if (!checkIn || !checkOut || !roomSelection?.length) {
-//       return res.status(400).json({ message: "Missing required booking fields" });
-//     }
-
-
-//     // ------------------------------
-//     // DATES + ROOM LOGIC
-//     // ------------------------------
-//     const ci = new Date(checkIn);
-//     const co = new Date(checkOut);
-//     const nights = Math.ceil((co - ci) / (1000 * 60 * 60 * 24));
-
-//     const roomRequest = roomSelection[0];
-//     const roomType = roomRequest.roomType;
-//     const roomQty = roomRequest.roomsRequested;
-
-//     const roomDoc = await Room.findOne({ roomType });
-//     if (!roomDoc) return res.status(400).json({ message: `Room type ${roomType} not found` });
-
-//     const allowedRooms = roomNumberList[roomType];
-//     if (!allowedRooms?.length) {
-//       return res.status(400).json({ message: `No rooms configured for ${roomType}` });
-//     }
-
-//     const bookedRooms = await Booking.find({
-//       "rooms.roomType": roomType,
-//       checkIn: { $lte: co },
-//       checkOut: { $gte: ci },
-//       status: { $in: ["pending", "confirmed", "guaranteed", "checked_in"] },
-//     }).select("assignedRoom");
-
-//     const usedRooms = bookedRooms
-//       .flatMap((b) => Array.isArray(b.assignedRoom) ? b.assignedRoom : [b.assignedRoom])
-//       .filter(Boolean);
-
-//     const freeRooms = allowedRooms.filter((r) => !usedRooms.includes(r));
-
-//     if (freeRooms.length < roomQty) {
-//       return res.status(400).json({ message: `Not enough available rooms for ${roomType}` });
-//     }
-
-//     const assignedRooms = freeRooms.slice(0, roomQty);
-
-//     const total = roomDoc.price * roomQty * nights;
-//     const bookingNumber = await generateBookingNumber();
-
-
-//     // ------------------------------
-//     // ⭐ STATUS LOGIC (WEBSITE + ADMIN)
-//     // ------------------------------
-
-//     let finalStatus;
-
-//     if (statusOverride) {
-//       // ADMIN chooses pending / confirmed / guaranteed
-//       const allowed = ["pending", "confirmed", "guaranteed"];
-//       finalStatus = allowed.includes(statusOverride)
-//         ? statusOverride
-//         : "pending";
-
-//     } else {
-//       // WEBSITE LOGIC (unchanged)
-//       finalStatus = transactionNumber ? "confirmed" : "pending";
-//     }
-
-
-//     // ------------------------------
-//     // CREATE BOOKING
-//     // ------------------------------
-//     const booking = await Booking.create({
-//       bookingNumber,
-
-//       firstName: isAgencyBooking ? "" : firstName,
-//       lastName: isAgencyBooking ? "" : lastName,
-//       email: isAgencyBooking ? "" : email,
-
-//       country,
-//       phoneNumber: isAgencyBooking ? "" : phone,
-
-//       isAgencyBooking,
-//       agencyName: isAgencyBooking ? agencyName : "",
-//       agentName: isAgencyBooking ? agentName : "",
-//       agencyEmail: isAgencyBooking ? agencyEmail || "" : "",
-//       agencyPhone: isAgencyBooking ? agencyPhone || "" : "",
-
-//       checkIn: ci,
-//       checkOut: co,
-//       rooms: [
-//         { roomType, quantity: roomQty, pricePerNight: roomDoc.price }
-//       ],
-//       meals,
-//       specialRequest,
-//       totalPrice: total,
-
-//       status: finalStatus,
-//       assignedRoom: assignedRooms,
-//       transactionNumber: transactionNumber || "",
-//     });
-
-//     res.status(201).json({
-//       message: `Booking created successfully as ${finalStatus}`,
-//       booking,
-//     });
-
-//   } catch (err) {
-//     console.error("Booking creation error:", err);
-//     res.status(500).json({ message: "Server error", error: err.message });
-//   }
-// };
-
-
-
 // ASSIGN ROOM
 exports.assignRoom = async (req, res) => {
   try {
@@ -383,29 +243,6 @@ exports.assignRoom = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-// exports.confirmBooking = async (req, res) => {
-//   try {
-//     const { bookingId } = req.params;
-//     const { transactionNumber } = req.body;
-
-//     if (!transactionNumber)
-//       return res.status(400).json({ message: 'Transaction number required' });
-
-//     const booking = await Booking.findById(bookingId);
-//     if (!booking) return res.status(404).json({ message: 'Booking not found' });
-
-//     booking.status = "confirmed"; // deposit
-//     booking.transactionNumber = transactionNumber;
-//     await booking.save();
-
-//     await updateBookingInSheet(booking);
-
-//     res.status(200).json({ message: 'Booking confirmed.', booking });
-//   } catch (error) {
-//     res.status(500).json({ message: error.message });
-//   }
-// };
 exports.confirmBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;
@@ -489,29 +326,6 @@ exports.confirmBooking = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-// ** NEW: GUARANTEE BOOKING (full payment) **
-// exports.guaranteeBooking = async (req, res) => {
-//   try {
-//     const { bookingId } = req.params;
-//     const { transactionNumber } = req.body;
-
-//     if (!transactionNumber)
-//       return res.status(400).json({ message: 'Transaction number required' });
-
-//     const booking = await Booking.findById(bookingId);
-//     if (!booking) return res.status(404).json({ message: 'Booking not found' });
-
-//     booking.status = "guaranteed"; // full payment done
-//     booking.transactionNumber = transactionNumber;
-//     await booking.save();
-
-//     await updateBookingInSheet(booking);
-
-//     res.status(200).json({ message: 'Booking guaranteed.', booking });
-//   } catch (error) {
-//     res.status(500).json({ message: error.message });
-//   }
-// };
 exports.guaranteeBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;
@@ -592,40 +406,6 @@ exports.guaranteeBooking = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
-// // REJECT BOOKING (with reason)
-// exports.rejectBooking = async (req, res) => {
-//   try {
-//     const { bookingId } = req.params;
-//     const { reason } = req.body;   // ⭐ NEW: reject reason
-
-//     const booking = await Booking.findById(bookingId);
-//     if (!booking) return res.status(404).json({ message: "Booking not found" });
-
-//     // Cannot reject confirmed / guaranteed / checked-in
-//     if (booking.status !== "pending") {
-//       return res.status(400).json({
-//         message: `Cannot reject booking in status: ${booking.status}`,
-//       });
-//     }
-
-//     booking.status = "rejected";
-//     booking.rejectReason = reason || "No reason provided";  // ⭐ Store reason
-//     booking.assignedRoom = []; // Free room
-
-//     await booking.save();
-//     await removeBookingFromSheet(booking);
-
-//     res.status(200).json({
-//       message: "Booking rejected successfully.",
-//       booking,
-//     });
-
-//   } catch (err) {
-//     console.error("Reject booking error:", err);
-//     res.status(500).json({ message: err.message });
-//   }
-// };
 exports.rejectBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;
@@ -984,73 +764,6 @@ exports.cancelBooking = async (req, res) => {
   }
 };
 
-// // CANCEL BOOKING (only for confirmed)
-// exports.cancelBooking = async (req, res) => {
-//   try {
-//     const { bookingId } = req.params;
-//     const { reason } = req.body;  // ⭐ NEW: cancellation reason
-
-//     const booking = await Booking.findById(bookingId);
-//     if (!booking) {
-//       return res.status(404).json({ message: "Booking not found" });
-//     }
-
-//     // ❌ RULE 1: Cannot cancel pending → use rejectBooking instead
-//     if (booking.status === "pending") {
-//       return res.status(400).json({
-//         message: "Pending bookings cannot be cancelled. Use reject option."
-//       });
-//     }
-
-//     // ❌ RULE 2: Cannot cancel guaranteed
-//     if (booking.status === "guaranteed") {
-//       return res.status(400).json({
-//         message: "Guaranteed bookings cannot be cancelled."
-//       });
-//     }
-
-//     // ❌ RULE 3: Cannot cancel after check-in
-//     if (booking.status === "checked_in") {
-//       return res.status(400).json({
-//         message: "Cannot cancel a checked-in booking."
-//       });
-//     }
-
-//     // ❌ RULE 4: Block if already ended or cancelled/rejected
-//     if (["checked_out", "rejected", "cancelled"].includes(booking.status)) {
-//       return res.status(400).json({
-//         message: `Booking already ${booking.status}.`
-//       });
-//     }
-
-//     // ✔ RULE 5: Only confirmed can be cancelled
-//     if (booking.status !== "confirmed") {
-//       return res.status(400).json({
-//         message: "Only confirmed bookings can be cancelled."
-//       });
-//     }
-
-//     // ⭐ SAVE THE CANCELLATION REASON
-//     booking.cancelReason = reason || "No reason provided"; 
-
-//     // ✔ CANCEL BOOKING
-//     booking.status = "cancelled";
-//     booking.assignedRoom = []; // Free rooms
-
-//     await booking.save();
-
-//     await removeBookingFromSheet(booking);
-
-//     res.status(200).json({
-//       message: "Booking cancelled successfully.",
-//       booking,
-//     });
-
-//   } catch (err) {
-//     console.error("Cancel booking error:", err);
-//     res.status(500).json({ message: err.message });
-//   }
-// };
 exports.getAllCancelledBookings = async (_, res) => {
   try {
     const bookings = await Booking.find({ status: "cancelled" })
