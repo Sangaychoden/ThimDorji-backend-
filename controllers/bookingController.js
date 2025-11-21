@@ -552,7 +552,7 @@ exports.guaranteeBooking = async (req, res) => {
 
           <p><strong>Booking Number:</strong> ${booking.bookingNumber}</p>
           <p><strong>Room Type:</strong> ${booking.rooms[0].roomType}</p>
-          <p><strong>Assigned Room:</strong> ${booking.assignedRoom.join(", ") || "Pending"}</p>
+          
           <p><strong>Check-In:</strong> ${booking.checkIn.toDateString()}</p>
           <p><strong>Check-Out:</strong> ${booking.checkOut.toDateString()}</p>
           <p><strong>Transaction Number:</strong> ${transactionNumber}</p>
