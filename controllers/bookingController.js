@@ -450,7 +450,6 @@ exports.confirmBooking = async (req, res) => {
               <h3 style="color:#444;">Booking Details</h3>
               <p><strong>Booking Number:</strong> ${booking.bookingNumber}</p>
               <p><strong>Room Type:</strong> ${booking.rooms[0].roomType}</p>
-              <p><strong>Assigned Room(s):</strong> ${booking.assignedRoom.join(", ")}</p>
               <p><strong>Check-in:</strong> ${new Date(booking.checkIn).toDateString()}</p>
               <p><strong>Check-out:</strong> ${new Date(booking.checkOut).toDateString()}</p>
 
@@ -491,71 +490,219 @@ exports.confirmBooking = async (req, res) => {
   }
 };
 // ** NEW: GUARANTEE BOOKING (full payment) **
+// exports.guaranteeBooking = async (req, res) => {
+//   try {
+//     const { bookingId } = req.params;
+//     const { transactionNumber } = req.body;
+
+//     if (!transactionNumber)
+//       return res.status(400).json({ message: 'Transaction number required' });
+
+//     const booking = await Booking.findById(bookingId);
+//     if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+//     booking.status = "guaranteed"; // full payment done
+//     booking.transactionNumber = transactionNumber;
+//     await booking.save();
+
+//     await updateBookingInSheet(booking);
+
+//     res.status(200).json({ message: 'Booking guaranteed.', booking });
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
 exports.guaranteeBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;
     const { transactionNumber } = req.body;
 
     if (!transactionNumber)
-      return res.status(400).json({ message: 'Transaction number required' });
+      return res.status(400).json({ message: "Transaction number required" });
 
     const booking = await Booking.findById(bookingId);
-    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+    if (!booking)
+      return res.status(404).json({ message: "Booking not found" });
 
+    // Update booking
     booking.status = "guaranteed"; // full payment done
     booking.transactionNumber = transactionNumber;
     await booking.save();
 
     await updateBookingInSheet(booking);
 
-    res.status(200).json({ message: 'Booking guaranteed.', booking });
+    // -----------------------------------------------------------
+    //  SEND EMAIL TO GUEST (same style template as changePassword)
+    // -----------------------------------------------------------
+
+    const fullName = booking.isAgencyBooking
+      ? booking.agentName || "Guest"
+      : `${booking.firstName} ${booking.lastName}`;
+
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; padding: 15px; background-color: #f9f9f9;">
+        <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; padding: 20px; border: 1px solid #ddd;">
+          <h2 style="color: #006600;">Booking Guaranteed</h2>
+
+          <p>Dear <strong>${fullName}</strong>,</p>
+
+          <p>Your booking has been <strong>fully guaranteed</strong> after receiving your payment.</p>
+
+          <h3 style="color:#333;">Booking Details</h3>
+
+          <p><strong>Booking Number:</strong> ${booking.bookingNumber}</p>
+          <p><strong>Room Type:</strong> ${booking.rooms[0].roomType}</p>
+          <p><strong>Assigned Room:</strong> ${booking.assignedRoom.join(", ") || "Pending"}</p>
+          <p><strong>Check-In:</strong> ${booking.checkIn.toDateString()}</p>
+          <p><strong>Check-Out:</strong> ${booking.checkOut.toDateString()}</p>
+          <p><strong>Transaction Number:</strong> ${transactionNumber}</p>
+
+          <p style="margin-top:20px;">
+            Thank you for choosing <strong>Hotel Thim-Dorji</strong>.  
+            We look forward to welcoming you.
+          </p>
+
+          <p style="margin-top: 25px;">Best Regards,<br><strong>Hotel Reservation Team</strong></p>
+        </div>
+      </div>
+    `;
+
+    // Send email (Gmail API)
+    const guestEmail = booking.isAgencyBooking
+      ? booking.agencyEmail
+      : booking.email;
+
+    if (guestEmail) {
+      await sendMailWithGmailApi(
+        guestEmail,
+        "Your Booking is Guaranteed",
+        htmlContent
+      );
+    }
+
+    // -----------------------------------------------------------
+
+    res.status(200).json({
+      message: "Booking guaranteed and email sent.",
+      booking,
+    });
+
   } catch (error) {
+    console.error("Guarantee Booking Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
-// // REJECT BOOKING
+
+// // REJECT BOOKING (with reason)
 // exports.rejectBooking = async (req, res) => {
 //   try {
 //     const { bookingId } = req.params;
+//     const { reason } = req.body;   // ⭐ NEW: reject reason
 
 //     const booking = await Booking.findById(bookingId);
-//     if (!booking) return res.status(404).json({ message: 'Booking not found' });
+//     if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+//     // Cannot reject confirmed / guaranteed / checked-in
+//     if (booking.status !== "pending") {
+//       return res.status(400).json({
+//         message: `Cannot reject booking in status: ${booking.status}`,
+//       });
+//     }
 
 //     booking.status = "rejected";
-//     await booking.save();
+//     booking.rejectReason = reason || "No reason provided";  // ⭐ Store reason
+//     booking.assignedRoom = []; // Free room
 
+//     await booking.save();
 //     await removeBookingFromSheet(booking);
 
-//     res.status(200).json({ message: 'Booking rejected', booking });
+//     res.status(200).json({
+//       message: "Booking rejected successfully.",
+//       booking,
+//     });
+
 //   } catch (err) {
-//     res.status(500).json({ error: err.message });
+//     console.error("Reject booking error:", err);
+//     res.status(500).json({ message: err.message });
 //   }
 // };
-// REJECT BOOKING (with reason)
 exports.rejectBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;
-    const { reason } = req.body;   // ⭐ NEW: reject reason
+    const { reason } = req.body;
 
     const booking = await Booking.findById(bookingId);
-    if (!booking) return res.status(404).json({ message: "Booking not found" });
+    if (!booking)
+      return res.status(404).json({ message: "Booking not found" });
 
-    // Cannot reject confirmed / guaranteed / checked-in
+    // Only pending bookings can be rejected
     if (booking.status !== "pending") {
       return res.status(400).json({
         message: `Cannot reject booking in status: ${booking.status}`,
       });
     }
 
+    // Update booking
     booking.status = "rejected";
-    booking.rejectReason = reason || "No reason provided";  // ⭐ Store reason
-    booking.assignedRoom = []; // Free room
-
+    booking.rejectReason = reason || "No reason provided";
+    booking.assignedRoom = [];
     await booking.save();
+
     await removeBookingFromSheet(booking);
 
+    // -----------------------------------------------------------
+    // 📧 SEND REJECTION EMAIL (Styled)
+    // -----------------------------------------------------------
+
+    const fullName = booking.isAgencyBooking
+      ? booking.agentName || "Guest"
+      : `${booking.firstName} ${booking.lastName}`;
+
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; padding: 15px; background-color: #f9f9f9;">
+        <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; padding: 20px; border: 1px solid #ddd;">
+          
+          <h2 style="color: #cc0000;">Booking Rejected</h2>
+
+          <p>Dear <strong>${fullName}</strong>,</p>
+
+          <p>We regret to inform you that your booking request has been <strong>rejected</strong>.</p>
+
+          <h3 style="color:#333;">Booking Details</h3>
+
+          <p><strong>Booking Number:</strong> ${booking.bookingNumber}</p>
+          <p><strong>Room Type:</strong> ${booking.rooms[0].roomType}</p>
+          <p><strong>Check-In:</strong> ${booking.checkIn.toDateString()}</p>
+          <p><strong>Check-Out:</strong> ${booking.checkOut.toDateString()}</p>
+
+          <h3 style="color:#333;">Reason for Rejection</h3>
+          <p style="color:#cc0000;"><strong>${booking.rejectReason}</strong></p>
+
+          <p style="margin-top:20px;">
+            If you have any questions or wish to modify your booking, please contact our reservations team.
+          </p>
+
+          <p style="margin-top: 25px;">Best Regards,<br><strong>Hotel Reservation Team</strong></p>
+        </div>
+      </div>
+    `;
+
+    const guestEmail = booking.isAgencyBooking
+      ? booking.agencyEmail
+      : booking.email;
+
+    if (guestEmail) {
+      await sendMailWithGmailApi(
+        guestEmail,
+        "Your Booking Has Been Rejected",
+        htmlContent
+      );
+    }
+
+    // -----------------------------------------------------------
+
     res.status(200).json({
-      message: "Booking rejected successfully.",
+      message: "Booking rejected successfully, email sent.",
       booking,
     });
 
@@ -564,6 +711,7 @@ exports.rejectBooking = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
 
 // CHECK-IN
 exports.checkInBooking = async (req, res) => {
@@ -719,11 +867,10 @@ exports.getConfirmedAndGuaranteedBookings = async (_, res) => {
     res.status(500).json({ message: 'Error fetching bookings' });
   }
 };
-// CANCEL BOOKING (only for confirmed)
 exports.cancelBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;
-    const { reason } = req.body;  // ⭐ NEW: cancellation reason
+    const { reason } = req.body;
 
     const booking = await Booking.findById(bookingId);
     if (!booking) {
@@ -751,7 +898,7 @@ exports.cancelBooking = async (req, res) => {
       });
     }
 
-    // ❌ RULE 4: Block if already ended or cancelled/rejected
+    // ❌ RULE 4: Already cancelled / ended
     if (["checked_out", "rejected", "cancelled"].includes(booking.status)) {
       return res.status(400).json({
         message: `Booking already ${booking.status}.`
@@ -765,19 +912,69 @@ exports.cancelBooking = async (req, res) => {
       });
     }
 
-    // ⭐ SAVE THE CANCELLATION REASON
-    booking.cancelReason = reason || "No reason provided"; 
+    // ⭐ SAVE CANCELLATION REASON
+    booking.cancelReason = reason || "No reason provided";
 
     // ✔ CANCEL BOOKING
     booking.status = "cancelled";
-    booking.assignedRoom = []; // Free rooms
-
+    booking.assignedRoom = [];
     await booking.save();
 
     await removeBookingFromSheet(booking);
 
+    // -----------------------------------------------------------
+    // 📧 SEND CANCELLATION EMAIL (HTML Styled)
+    // -----------------------------------------------------------
+
+    const fullName = booking.isAgencyBooking
+      ? booking.agentName || "Guest"
+      : `${booking.firstName} ${booking.lastName}`;
+
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; padding: 15px; background-color: #f9f9f9;">
+        <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; padding: 20px; border: 1px solid #ddd;">
+
+          <h2 style="color: #cc0000;">Booking Cancelled</h2>
+
+          <p>Dear <strong>${fullName}</strong>,</p>
+
+          <p>Your booking has been <strong>cancelled</strong> by our reservation team.</p>
+
+          <h3 style="color:#333;">Booking Details</h3>
+          <p><strong>Booking Number:</strong> ${booking.bookingNumber}</p>
+          <p><strong>Room Type:</strong> ${booking.rooms[0].roomType}</p>
+          <p><strong>Check-In:</strong> ${booking.checkIn.toDateString()}</p>
+          <p><strong>Check-Out:</strong> ${booking.checkOut.toDateString()}</p>
+
+          <h3 style="color:#333;">Reason for Cancellation</h3>
+          <p style="color:#cc0000;"><strong>${booking.cancelReason}</strong></p>
+
+          <p style="margin-top:20px;">
+            If you wish, you may create a new booking at any time.  
+            Please contact us if you need assistance.
+          </p>
+
+          <p style="margin-top: 25px;">Best Regards,<br><strong>Hotel Reservation Team</strong></p>
+        </div>
+      </div>
+    `;
+
+    const guestEmail = booking.isAgencyBooking
+      ? booking.agencyEmail
+      : booking.email;
+
+    if (guestEmail) {
+      await sendMailWithGmailApi(
+        guestEmail,
+        "Your Booking Has Been Cancelled",
+        htmlContent
+      );
+    }
+
+    // -----------------------------------------------------------
+
     res.status(200).json({
-      message: "Booking cancelled successfully.",
+      message: "Booking cancelled successfully. Email sent.",
       booking,
     });
 
@@ -786,6 +983,74 @@ exports.cancelBooking = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// // CANCEL BOOKING (only for confirmed)
+// exports.cancelBooking = async (req, res) => {
+//   try {
+//     const { bookingId } = req.params;
+//     const { reason } = req.body;  // ⭐ NEW: cancellation reason
+
+//     const booking = await Booking.findById(bookingId);
+//     if (!booking) {
+//       return res.status(404).json({ message: "Booking not found" });
+//     }
+
+//     // ❌ RULE 1: Cannot cancel pending → use rejectBooking instead
+//     if (booking.status === "pending") {
+//       return res.status(400).json({
+//         message: "Pending bookings cannot be cancelled. Use reject option."
+//       });
+//     }
+
+//     // ❌ RULE 2: Cannot cancel guaranteed
+//     if (booking.status === "guaranteed") {
+//       return res.status(400).json({
+//         message: "Guaranteed bookings cannot be cancelled."
+//       });
+//     }
+
+//     // ❌ RULE 3: Cannot cancel after check-in
+//     if (booking.status === "checked_in") {
+//       return res.status(400).json({
+//         message: "Cannot cancel a checked-in booking."
+//       });
+//     }
+
+//     // ❌ RULE 4: Block if already ended or cancelled/rejected
+//     if (["checked_out", "rejected", "cancelled"].includes(booking.status)) {
+//       return res.status(400).json({
+//         message: `Booking already ${booking.status}.`
+//       });
+//     }
+
+//     // ✔ RULE 5: Only confirmed can be cancelled
+//     if (booking.status !== "confirmed") {
+//       return res.status(400).json({
+//         message: "Only confirmed bookings can be cancelled."
+//       });
+//     }
+
+//     // ⭐ SAVE THE CANCELLATION REASON
+//     booking.cancelReason = reason || "No reason provided"; 
+
+//     // ✔ CANCEL BOOKING
+//     booking.status = "cancelled";
+//     booking.assignedRoom = []; // Free rooms
+
+//     await booking.save();
+
+//     await removeBookingFromSheet(booking);
+
+//     res.status(200).json({
+//       message: "Booking cancelled successfully.",
+//       booking,
+//     });
+
+//   } catch (err) {
+//     console.error("Cancel booking error:", err);
+//     res.status(500).json({ message: err.message });
+//   }
+// };
 exports.getAllCancelledBookings = async (_, res) => {
   try {
     const bookings = await Booking.find({ status: "cancelled" })
