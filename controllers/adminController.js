@@ -7,7 +7,7 @@ const nodemailer = require("nodemailer");
 const { google } = require("googleapis");
 const { sendMailWithGmailApi } = require("../utils/gmailSender");
 const OAuth2 = google.auth.OAuth2;
-
+const loginAttempts = {};
 const oauth2Client = new OAuth2(
   process.env.GMAIL_CLIENT_ID,
   process.env.GMAIL_CLIENT_SECRET,
@@ -21,9 +21,9 @@ console.log("CLIENT ID LOADED:", process.env.GMAIL_CLIENT_ID);
 console.log("CLIENT SECRET LOADED:", process.env.GMAIL_CLIENT_SECRET);
 console.log("REFRESH TOKEN LOADED:", process.env.GMAIL_REFRESH_TOKEN.substring(0, 12) + "...");
 
-// ======================================================
-// 🔐 UNIVERSAL AUTHENTICATION MIDDLEWARE
-// ======================================================
+
+// UNIVERSAL AUTHENTICATION MIDDLEWARE
+
 const authenticateUser = async (req, res, next) => {
   try {
     const token = req.cookies?.adminToken;
@@ -52,9 +52,9 @@ const authenticateUser = async (req, res, next) => {
   }
 };
 
-// ======================================================
-// 🔐 ADMIN-ONLY MIDDLEWARE
-// ======================================================
+
+// ADMIN-ONLY MIDDLEWARE
+
 const authenticateAdmin = async (req, res, next) => {
   try {
     const token = req.cookies?.adminToken;
@@ -81,9 +81,9 @@ const authenticateAdmin = async (req, res, next) => {
   }
 };
 
-// ======================================================
-// 🧑‍💼 RECEPTIONIST-ONLY MIDDLEWARE
-// ======================================================
+
+// RECEPTIONIST-ONLY MIDDLEWARE
+
 const authenticateReceptionist = async (req, res, next) => {
   try {
     const token = req.cookies?.adminToken;
@@ -109,9 +109,9 @@ const authenticateReceptionist = async (req, res, next) => {
     });
   }
 };
-// ======================================================
-// 🔄 ADMIN OR RECEPTIONIST MIDDLEWARE
-// ======================================================
+
+//ADMIN OR RECEPTIONIST MIDDLEWARE
+
 const authenticateAdminOrReceptionist = async (req, res, next) => {
   try {
     const token = req.cookies?.adminToken;
@@ -141,12 +141,91 @@ const authenticateAdminOrReceptionist = async (req, res, next) => {
 };
 
 
+// exports.login = async (req, res) => {
+//   try {
+//     const { username, password } = req.body;
+//     const routePath = req.originalUrl; // '/admin/login' or '/receptionist/login'
+
+//     // Find admin or receptionist
+//     let user = await Admin.findOne({ username });
+//     let role = "admin";
+
+//     if (!user) {
+//       user = await Receptionist.findOne({ username });
+//       role = "receptionist";
+//     }
+
+//     if (!user) {
+//       return res.status(404).json({ message: "User not found" });
+//     }
+
+//     // Check password
+//     const isMatch = await bcrypt.compare(password, user.password);
+//     if (!isMatch) {
+//       return res.status(401).json({ message: "Invalid password" });
+//     }
+
+//     // Route-based access rules
+//     if (routePath.includes("/receptionist") && role !== "receptionist") {
+//       return res.status(403).json({ message: "Admins cannot log in here" });
+//     }
+//     if (routePath.includes("/admin") && role !== "admin") {
+//       return res.status(403).json({ message: "Receptionists cannot log in here" });
+//     }
+
+//     // Generate JWT
+//     const token = jwt.sign(
+//       { id: user._id, username: user.username, role },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "1h" }
+//     );
+
+//     // ============================================
+//     // ⭐ FIXED COOKIE FOR RENDER + VERCEL
+//     // ============================================
+//     res.cookie("adminToken", token, {
+//       httpOnly: true,
+//       secure: true,         // Render uses HTTPS
+//       sameSite: "None",     // REQUIRED for cross-domain cookies
+//       path: "/",            // cookie valid for all routes
+//       maxAge: 60 * 60 * 1000, // 1 hour
+//     });
+
+//     res.status(200).json({
+//       message: `${role.charAt(0).toUpperCase() + role.slice(1)} logged in successfully`,
+//       role,
+//     });
+
+//   } catch (err) {
+//     console.error("Login Error:", err);
+//     res.status(500).json({ message: "Server error", error: err.message });
+//   }
+// };
+// Temporary in-memory attempt tracker (you can move to DB later)
+
 exports.login = async (req, res) => {
   try {
     const { username, password } = req.body;
-    const routePath = req.originalUrl; // '/admin/login' or '/receptionist/login'
+    const routePath = req.originalUrl;
 
-    // Find admin or receptionist
+    const now = Date.now();
+
+    
+    // BRUTE-FORCE PROTECTION
+  
+    if (!loginAttempts[username]) {
+      loginAttempts[username] = { attempts: 0, lockUntil: 0 };
+    }
+
+    // Check lock status
+    if (now < loginAttempts[username].lockUntil) {
+      return res.status(429).json({
+        message: "Too many failed login attempts. Try again in 10 minutes.",
+      });
+    }
+
+
+    // ⭐ FIND USER (Admin or Reception)
     let user = await Admin.findOne({ username });
     let role = "admin";
 
@@ -155,17 +234,43 @@ exports.login = async (req, res) => {
       role = "receptionist";
     }
 
+    // We do NOT say “user not found” for security reasons
+    // We pretend password is wrong to give a generic error
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      loginAttempts[username].attempts += 1;
+
+      // Lock after 5 failed attempts
+      if (loginAttempts[username].attempts >= 5) {
+        loginAttempts[username].lockUntil = now + 10 * 60 * 1000; // 10 minutes
+      }
+
+      return res.status(401).json({
+        message: "Invalid username or password",
+      });
     }
 
-    // Check password
+
+    // VERIFY PASSWORD
     const isMatch = await bcrypt.compare(password, user.password);
+
     if (!isMatch) {
-      return res.status(401).json({ message: "Invalid password" });
+      loginAttempts[username].attempts += 1;
+
+      if (loginAttempts[username].attempts >= 5) {
+        loginAttempts[username].lockUntil = now + 10 * 60 * 1000;
+      }
+
+      return res.status(401).json({
+        message: "Invalid username or password",
+      });
     }
 
-    // Route-based access rules
+    // Reset attempt counter after successful login
+    loginAttempts[username] = { attempts: 0, lockUntil: 0 };
+
+
+    // ROUTE ACCESS VALIDATION
+ 
     if (routePath.includes("/receptionist") && role !== "receptionist") {
       return res.status(403).json({ message: "Admins cannot log in here" });
     }
@@ -173,25 +278,28 @@ exports.login = async (req, res) => {
       return res.status(403).json({ message: "Receptionists cannot log in here" });
     }
 
-    // Generate JWT
+
+    // GENERATE JWT
+
     const token = jwt.sign(
       { id: user._id, username: user.username, role },
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
 
-    // ============================================
-    // ⭐ FIXED COOKIE FOR RENDER + VERCEL
-    // ============================================
+   
+    // SECURE COOKIE
     res.cookie("adminToken", token, {
       httpOnly: true,
-      secure: true,         // Render uses HTTPS
-      sameSite: "None",     // REQUIRED for cross-domain cookies
-      path: "/",            // cookie valid for all routes
+      secure: true,         // HTTPS ONLY (Render/Vercel)
+      sameSite: "None",     // Required for cross-domain cookies
+      path: "/",            // Accessible globally
       maxAge: 60 * 60 * 1000, // 1 hour
     });
 
-    res.status(200).json({
+   
+    // SUCCESS RESPONSE
+    return res.status(200).json({
       message: `${role.charAt(0).toUpperCase() + role.slice(1)} logged in successfully`,
       role,
     });
