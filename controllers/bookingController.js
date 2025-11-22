@@ -485,22 +485,80 @@ exports.rejectBooking = async (req, res) => {
 };
 
 
+// // CHECK-IN
+// exports.checkInBooking = async (req, res) => {
+//   try {
+//     const { bookingId } = req.params;
+//     const booking = await Booking.findById(bookingId);
+//     if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+//     booking.status = "checked_in";
+//     await booking.save();
+
+//     await updateBookingInSheet(booking);
+//     res.status(200).json({ message: 'Guest checked in', booking });
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// };
 // CHECK-IN
 exports.checkInBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;
-    const booking = await Booking.findById(bookingId);
-    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+    const { transactionNumber } = req.body; // 🔥 add this for "confirmed" payments
 
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    // ❌ Cannot check-in if pending/available/cancelled
+    if (
+      booking.status === "pending" ||
+      booking.status === "cancelled" ||
+      booking.status === "available"
+    ) {
+      return res.status(400).json({
+        message: `Cannot check in when status is ${booking.status.toUpperCase()}.`,
+      });
+    }
+
+    // ⭐ CASE 1 — Confirmed Booking → MUST ENTER NEW PAYMENT JOURNAL
+    if (booking.status === "confirmed") {
+      if (!transactionNumber) {
+        return res.status(400).json({
+          message: "Transaction / Journal number is required at check-in for CONFIRMED bookings.",
+        });
+      }
+
+      // Update payment
+      booking.transactionNumber = transactionNumber;
+    }
+
+    // ⭐ CASE 2 — Guaranteed Booking → NO NEED FOR PAYMENT
+    if (booking.status === "guaranteed") {
+      // Do nothing — they already paid, no new journal required
+    }
+
+    // Update status to Checked-in
     booking.status = "checked_in";
+    booking.checkInTime = new Date(); // Optional: Add timestamp
     await booking.save();
 
+    // Update Google Sheet
     await updateBookingInSheet(booking);
-    res.status(200).json({ message: 'Guest checked in', booking });
+
+    return res.status(200).json({
+      message: "Guest checked in successfully",
+      booking,
+    });
+
   } catch (err) {
+    console.error("CHECK-IN ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
 
 // AUTO CHECKOUT
 cron.schedule("0 0 * * *", async () => {
