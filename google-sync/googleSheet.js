@@ -432,7 +432,7 @@ exports.removeBookingFromSheet = async function (booking) {
         await sheets.spreadsheets.values.update({
           spreadsheetId: sheetId,
           range: `${tab}!B${row}:O${row}`,
-          valueInputOption: "USER_INPUT",
+          valueInputOption: "USER_ENTERED",   // ✅ FIXED
           resource: {
             values: [["", "", "", "", "", "", "", "", "", "", "", "", "", ""]],
           },
@@ -445,6 +445,7 @@ exports.removeBookingFromSheet = async function (booking) {
 
   console.log(`🗑️ Removed booking rows for ${booking.bookingNumber}`);
 };
+
 
 /* ------------------------------------------
  ✅ EXPORTS (FIXED)
