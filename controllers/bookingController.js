@@ -253,7 +253,7 @@ exports.confirmBooking = async (req, res) => {
     booking.status = "confirmed"; 
     booking.transactionNumber = transactionNumber;
     await booking.save();
-
+await removeBookingFromSheet(booking);
     await updateBookingInSheet(booking);
 
     // -------------------------------------
@@ -334,7 +334,7 @@ exports.guaranteeBooking = async (req, res) => {
     booking.status = "guaranteed"; // full payment done
     booking.transactionNumber = transactionNumber;
     await booking.save();
-
+await removeBookingFromSheet(booking);
     await updateBookingInSheet(booking);
 
     // -----------------------------------------------------------
