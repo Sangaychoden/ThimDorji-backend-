@@ -140,69 +140,6 @@ const authenticateAdminOrReceptionist = async (req, res, next) => {
   }
 };
 
-
-// exports.login = async (req, res) => {
-//   try {
-//     const { username, password } = req.body;
-//     const routePath = req.originalUrl; // '/admin/login' or '/receptionist/login'
-
-//     // Find admin or receptionist
-//     let user = await Admin.findOne({ username });
-//     let role = "admin";
-
-//     if (!user) {
-//       user = await Receptionist.findOne({ username });
-//       role = "receptionist";
-//     }
-
-//     if (!user) {
-//       return res.status(404).json({ message: "User not found" });
-//     }
-
-//     // Check password
-//     const isMatch = await bcrypt.compare(password, user.password);
-//     if (!isMatch) {
-//       return res.status(401).json({ message: "Invalid password" });
-//     }
-
-//     // Route-based access rules
-//     if (routePath.includes("/receptionist") && role !== "receptionist") {
-//       return res.status(403).json({ message: "Admins cannot log in here" });
-//     }
-//     if (routePath.includes("/admin") && role !== "admin") {
-//       return res.status(403).json({ message: "Receptionists cannot log in here" });
-//     }
-
-//     // Generate JWT
-//     const token = jwt.sign(
-//       { id: user._id, username: user.username, role },
-//       process.env.JWT_SECRET,
-//       { expiresIn: "1h" }
-//     );
-
-//     // ============================================
-//     // ⭐ FIXED COOKIE FOR RENDER + VERCEL
-//     // ============================================
-//     res.cookie("adminToken", token, {
-//       httpOnly: true,
-//       secure: true,         // Render uses HTTPS
-//       sameSite: "None",     // REQUIRED for cross-domain cookies
-//       path: "/",            // cookie valid for all routes
-//       maxAge: 60 * 60 * 1000, // 1 hour
-//     });
-
-//     res.status(200).json({
-//       message: `${role.charAt(0).toUpperCase() + role.slice(1)} logged in successfully`,
-//       role,
-//     });
-
-//   } catch (err) {
-//     console.error("Login Error:", err);
-//     res.status(500).json({ message: "Server error", error: err.message });
-//   }
-// };
-// Temporary in-memory attempt tracker (you can move to DB later)
-
 exports.login = async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -311,9 +248,9 @@ exports.login = async (req, res) => {
 };
 
 
-// ======================================================
-// 🚪 LOGOUT
-// ======================================================
+
+//LOGOUT
+
 exports.logout = async (req, res) => {
   try {
     res.clearCookie("adminToken", {
@@ -328,9 +265,9 @@ exports.logout = async (req, res) => {
   }
 };
 
-// ======================================================
-// 🧑‍💼 CREATE ADMIN (One-time setup)
-// ======================================================
+
+// CREATE ADMIN (One-time setup)
+
 exports.createAdminIfNotExists = async (req, res) => {
   try {
     const secretKey = req.headers["x-admin-key"];
@@ -357,31 +294,130 @@ exports.createAdminIfNotExists = async (req, res) => {
 };
 
 
-// ======================================================
-// 🔄 FIXED FORGOT PASSWORD — Styled Email like changePassword
-// ======================================================
+
+// FIXED FORGOT PASSWORD 
+
+// exports.forgotPassword = async (req, res) => {
+//   try {
+//     const { email } = req.body;
+
+//     if (!email || email.trim() === "") {
+//       return res.status(400).json({ message: "Email is required" });
+//     }
+
+//     const admin = await Admin.findOne({ email: email.trim().toLowerCase() });
+//     if (!admin) {
+//       return res.status(403).json({ message: "Email not registered as admin" });
+//     }
+
+//     // Generate OTP
+//     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+//     const expiry = new Date(Date.now() + 5 * 60 * 1000);
+
+//     admin.resetOTP = otp;
+//     admin.resetOTPExpiry = expiry;
+//     await admin.save();
+
+//     // Styled HTML email (same style as changePassword)
+//     const htmlContent = `
+//       <div style="font-family: Arial, sans-serif; padding: 15px; background-color: #f9f9f9;">
+//         <div style="max-width: 500px; margin: auto; background: white; border-radius: 10px; padding: 20px; border: 1px solid #ddd;">
+//           <h2 style="color: #006600;">Password Reset OTP</h2>
+//           <p>Dear <strong>${admin.username}</strong>,</p>
+//           <p>You requested to reset your password. Use the OTP below:</p>
+
+//           <h1 style="color: #333; text-align:center; letter-spacing: 5px;">
+//             ${otp}
+//           </h1>
+
+//           <p>This OTP will expire in <strong>5 minutes</strong>.</p>
+
+//           <p style="margin-top: 20px;">
+//             Best Regards,<br>
+//             <strong>Hotel Management Team</strong>
+//           </p>
+//         </div>
+//       </div>
+//     `;
+
+//     // Send email through Gmail API
+//     await sendMailWithGmailApi(admin.email, "Admin Password Reset OTP", htmlContent);
+
+//     res.status(200).json({ message: "OTP sent to admin's registered email." });
+
+//   } catch (err) {
+//     console.error("Forgot Password Error:", err);
+//     res.status(500).json({ message: "Server error. Please try again later." });
+//   }
+// };
+// Temporary in-memory tracker for OTP abuse prevention
+const otpRequestTracker = {}; // { email: { count: n, lockUntil: timestamp } }
+const OTP_REQUEST_LIMIT = 5;         // Max 5 OTP requests
+const OTP_LOCK_TIME = 10 * 60 * 1000; // 10 min lock
+
 exports.forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
+    let { email } = req.body;
 
     if (!email || email.trim() === "") {
-      return res.status(400).json({ message: "Email is required" });
+      return res.status(400).json({ message: "Invalid request" });
     }
 
-    const admin = await Admin.findOne({ email: email.trim().toLowerCase() });
+    email = email.trim().toLowerCase();
+    const now = Date.now();
+
+    // Initialize tracker for email
+    if (!otpRequestTracker[email]) {
+      otpRequestTracker[email] = { count: 0, lockUntil: 0 };
+    }
+
+    // Check lockout
+    if (now < otpRequestTracker[email].lockUntil) {
+      return res.status(429).json({
+        message: "Too many OTP requests. Try again later."
+      });
+    }
+
+    // Look up admin
+    const admin = await Admin.findOne({ email });
+
+    // Generic message (do not reveal if email exists)
+    const genericResponse = {
+      message: "If this email is registered, an OTP has been sent."
+    };
+
+    // If admin does not exist, still respond generic
     if (!admin) {
-      return res.status(403).json({ message: "Email not registered as admin" });
+      return res.status(200).json(genericResponse);
+    }
+
+    // Prevent spamming OTP (admin already has a valid OTP)
+    if (admin.resetOTPExpiry && admin.resetOTPExpiry > new Date()) {
+      return res.status(200).json(genericResponse);
+    }
+
+    // Track OTP request count
+    otpRequestTracker[email].count++;
+
+    if (otpRequestTracker[email].count >= OTP_REQUEST_LIMIT) {
+      otpRequestTracker[email].lockUntil = now + OTP_LOCK_TIME;
+      return res.status(429).json({
+        message: "Too many OTP requests. Try again later."
+      });
     }
 
     // Generate OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const rawOtp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiry = new Date(Date.now() + 5 * 60 * 1000);
 
-    admin.resetOTP = otp;
+    // Hash OTP before saving (do NOT store plain OTP)
+    const hashedOtp = await bcrypt.hash(rawOtp, 10);
+
+    admin.resetOTP = hashedOtp;
     admin.resetOTPExpiry = expiry;
     await admin.save();
 
-    // Styled HTML email (same style as changePassword)
+    // Email HTML content
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; padding: 15px; background-color: #f9f9f9;">
         <div style="max-width: 500px; margin: auto; background: white; border-radius: 10px; padding: 20px; border: 1px solid #ddd;">
@@ -390,7 +426,7 @@ exports.forgotPassword = async (req, res) => {
           <p>You requested to reset your password. Use the OTP below:</p>
 
           <h1 style="color: #333; text-align:center; letter-spacing: 5px;">
-            ${otp}
+            ${rawOtp}
           </h1>
 
           <p>This OTP will expire in <strong>5 minutes</strong>.</p>
@@ -403,16 +439,17 @@ exports.forgotPassword = async (req, res) => {
       </div>
     `;
 
-    // Send email through Gmail API
+    // Send email
     await sendMailWithGmailApi(admin.email, "Admin Password Reset OTP", htmlContent);
 
-    res.status(200).json({ message: "OTP sent to admin's registered email." });
+    return res.status(200).json(genericResponse);
 
   } catch (err) {
-    console.error("Forgot Password Error:", err);
+    console.error("Forgot Password Error");
     res.status(500).json({ message: "Server error. Please try again later." });
   }
 };
+
 
 // // ======================================================
 // // ✅ VERIFY OTP
