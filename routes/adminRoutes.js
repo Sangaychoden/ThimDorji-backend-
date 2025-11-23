@@ -30,11 +30,11 @@ router.post("/reset-password", adminController.resetPassword);
 // PROTECTED (JWT inside controller middleware)
 // ======================================================
 router.put("/change-password", adminController.changePassword);
+// CHECK AUTH
 router.get("/check-auth", authenticateAdminOrReceptionist, (req, res) => {
   res.status(200).json({
     authenticated: true,
-    role: req.role,
-    username: req.user.username,
+    role: req.role
   });
 });
 module.exports = router;

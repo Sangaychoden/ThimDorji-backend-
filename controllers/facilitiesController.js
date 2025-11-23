@@ -126,37 +126,7 @@ exports.updateFacility = async (req, res) => {
   }
 };
 
-// ✅ Update Facility
-// exports.updateFacility = async (req, res) => {
-//   try {
-//     const { title, description } = req.body;
-//     const facility = await Facility.findById(req.params.id);
-//     if (!facility) return res.status(404).json({ message: "Facility not found" });
 
-//     if (title) facility.title = title;
-//     if (description) facility.description = description;
-
-//     if (req.files && req.files.length > 0) {
-//       const newImages = [];
-//       for (const file of req.files) {
-//         const uploadRes = await uploadFromBuffer(file.buffer);
-//         newImages.push(uploadRes.secure_url);
-//       }
-//       facility.images = newImages;
-//     }
-
-//     await facility.save();
-//     res.status(200).json({
-//       message: "Facility updated successfully",
-//       facility,
-//     });
-//   } catch (error) {
-//     console.error("Update facility error:", error);
-//     res.status(500).json({ message: "Failed to update facility" });
-//   }
-// };
-
-// ✅ Delete Facility
 exports.deleteFacility = async (req, res) => {
   try {
     const facility = await Facility.findByIdAndDelete(req.params.id);
