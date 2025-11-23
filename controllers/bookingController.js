@@ -7,7 +7,8 @@ const { addBookingToSheet, updateBookingInSheet, removeBookingFromSheet } = requ
 const roomNumberList = require("../roomNumberList");
 const { sendMailWithGmailApi } = require("../utils/gmailSender");
 ;
-
+const validator = require("validator");
+const sanitizeHtml = require("sanitize-html");
 const generateBookingNumber = async () => {
   const lastBooking = await Booking.findOne().sort({ createdAt: -1 });
 
@@ -23,6 +24,182 @@ const generateBookingNumber = async () => {
 
   return `RN-${twoDigit}`;
 };
+
+// // CREATE BOOKING
+// exports.createBooking = async (req, res) => {
+//   try {
+//     const {
+//       firstName,
+//       lastName,
+//       email,
+//       country,
+//       phone,
+//       checkIn,
+//       checkOut,
+//       roomSelection,
+//       meals,
+//       specialRequest,
+//       isAgencyBooking,
+//       agencyName,
+//       agentName,
+//       agencyEmail,
+//       agencyPhone,
+//       transactionNumber,
+//       statusOverride
+//     } = req.body;
+
+//     // ------------------------------
+//     // VALIDATIONS
+//     // ------------------------------
+//     if (!checkIn || !checkOut || !roomSelection?.length) {
+//       return res.status(400).json({ message: "Missing required booking fields" });
+//     }
+
+//     if (!isAgencyBooking && (!firstName || !lastName || !email)) {
+//       return res.status(400).json({ message: "Guest details required" });
+//     }
+
+//     // ------------------------------
+//     // DATE + ROOM LOGIC
+//     // ------------------------------
+//     const ci = new Date(checkIn);
+//     const co = new Date(checkOut);
+//     const nights = Math.ceil((co - ci) / (1000 * 60 * 60 * 24));
+
+//     const roomRequest = roomSelection[0];
+//     const roomType = roomRequest.roomType;
+//     const roomQty = roomRequest.roomsRequested;
+
+//     const roomDoc = await Room.findOne({ roomType });
+//     if (!roomDoc)
+//       return res.status(400).json({ message: `Room type ${roomType} not found` });
+
+//     const allowedRooms = roomNumberList[roomType];
+//     const bookedRooms = await Booking.find({
+//       "rooms.roomType": roomType,
+//       checkIn: { $lte: co },
+//       checkOut: { $gte: ci },
+//       status: { $in: ["pending", "confirmed", "guaranteed", "checked_in"] }
+//     });
+
+//     const usedRooms = bookedRooms.flatMap(b => b.assignedRoom || []).filter(Boolean);
+
+//     const freeRooms = allowedRooms.filter(r => !usedRooms.includes(r));
+
+//     if (freeRooms.length < roomQty) {
+//       return res.status(400).json({ message: `Not enough available rooms for ${roomType}` });
+//     }
+
+//     const assignedRooms = freeRooms.slice(0, roomQty);
+
+//     const total = roomDoc.price * roomQty * nights;
+
+//     // ------------------------------
+//     // ⭐ FIXED — RN booking number
+//     // ------------------------------
+//     const bookingNumber = await generateBookingNumber();
+
+//     // ------------------------------
+//     // STATUS LOGIC
+//     // ------------------------------
+//     let finalStatus =
+//       statusOverride
+//         ? statusOverride
+//         : transactionNumber
+//         ? "confirmed"
+//         : "pending";
+
+//     // ------------------------------
+//     // CREATE BOOKING
+//     // ------------------------------
+//     const booking = await Booking.create({
+//       bookingNumber,
+
+//       firstName: isAgencyBooking ? "" : firstName,
+//       lastName: isAgencyBooking ? "" : lastName,
+//       email: isAgencyBooking ? "" : email,
+
+//       country,
+//       phoneNumber: isAgencyBooking ? "" : phone,
+
+//       isAgencyBooking,
+//       agencyName: isAgencyBooking ? agencyName : "",
+//       agentName: isAgencyBooking ? agentName : "",
+//       agencyEmail: isAgencyBooking ? agencyEmail || "" : "",
+//       agencyPhone: isAgencyBooking ? agencyPhone || "" : "",
+
+//       checkIn: ci,
+//       checkOut: co,
+//       rooms: [
+//         { roomType, quantity: roomQty, pricePerNight: roomDoc.price }
+//       ],
+//       meals,
+//       specialRequest,
+//       totalPrice: total,
+
+//       status: finalStatus,
+//       assignedRoom: assignedRooms,
+//       transactionNumber: transactionNumber || ""
+//     });
+
+//     // ------------------------------
+//     // EMAIL SEND — Styled HTML
+//     // ------------------------------
+//     try {
+//       const recipient = isAgencyBooking ? agencyEmail : email;
+
+//       if (recipient) {
+//         const html = `
+//           <div style="font-family: Arial, sans-serif; padding: 15px; background-color: #f9f9f9;">
+//             <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; padding: 20px; border: 1px solid #ddd;">
+//               <h2 style="color: #006600;">Booking Confirmation</h2>
+
+//               <p>Dear <strong>${isAgencyBooking ? agentName : firstName}</strong>,</p>
+
+//               <p>Your booking has been successfully sent to admin.</p>
+
+//               <h3>Booking Details</h3>
+//               <p><strong>Booking Number:</strong> ${bookingNumber}</p>
+//               <p><strong>Room Type:</strong> ${roomType}</p>
+//               <p><strong>Check-in:</strong> ${ci.toDateString()}</p>
+//               <p><strong>Check-out:</strong> ${co.toDateString()}</p>
+//               <p><strong>Nights:</strong> ${nights}</p>
+//               <p><strong>Total Price:</strong> Nu. ${total}</p>
+
+//               <p style="margin-top: 20px;">
+//                 Best Regards,<br>
+//                 <strong>Hotel Management Team</strong>
+//               </p>
+//             </div>
+//           </div>
+//         `;
+
+//         await sendMailWithGmailApi(
+//           recipient,
+//           `Booking Confirmation - ${bookingNumber}`,
+//           html
+//         );
+//       }
+//     } catch (emailErr) {
+//       console.error("EMAIL SEND ERROR:", emailErr.message);
+//     }
+//     await addBookingToSheet(booking);
+
+
+//     // ------------------------------
+//     // RESPONSE
+//     // ------------------------------
+//     res.status(201).json({
+//       message: `Booking created successfully as ${finalStatus}`,
+//       booking,
+//     });
+
+//   } catch (err) {
+//     console.error("Booking creation error:", err);
+//     res.status(500).json({ message: "Server error", error: err.message });
+//   }
+// };
+
 
 // CREATE BOOKING
 exports.createBooking = async (req, res) => {
@@ -47,20 +224,81 @@ exports.createBooking = async (req, res) => {
       statusOverride
     } = req.body;
 
-    // ------------------------------
-    // VALIDATIONS
-    // ------------------------------
-    if (!checkIn || !checkOut || !roomSelection?.length) {
-      return res.status(400).json({ message: "Missing required booking fields" });
+    // --------------------------------
+    // ⭐ INPUT SANITIZATION
+    // --------------------------------
+    const cleanFirstName = firstName ? validator.escape(firstName.trim()) : "";
+    const cleanLastName = lastName ? validator.escape(lastName.trim()) : "";
+    const cleanEmail = email ? validator.normalizeEmail(email) : "";
+    const cleanCountry = country ? validator.escape(country.trim()) : "";
+    const cleanPhone = phone ? validator.escape(phone.trim()) : "";
+
+    const cleanAgencyName = agencyName ? validator.escape(agencyName.trim()) : "";
+    const cleanAgentName = agentName ? validator.escape(agentName.trim()) : "";
+    const cleanAgencyEmail = agencyEmail ? validator.normalizeEmail(agencyEmail) : "";
+    const cleanAgencyPhone = agencyPhone ? validator.escape(agencyPhone.trim()) : "";
+
+    const cleanSpecialRequest = sanitizeHtml(specialRequest || "", {
+      allowedTags: [],
+      allowedAttributes: {}
+    });
+
+    // --------------------------------
+    // ⭐ INPUT VALIDATION
+    // --------------------------------
+    if (!checkIn || !validator.isDate(checkIn)) {
+      return res.status(400).json({ message: "Invalid check-in date" });
     }
 
-    if (!isAgencyBooking && (!firstName || !lastName || !email)) {
-      return res.status(400).json({ message: "Guest details required" });
+    if (!checkOut || !validator.isDate(checkOut)) {
+      return res.status(400).json({ message: "Invalid check-out date" });
     }
 
-    // ------------------------------
-    // DATE + ROOM LOGIC
-    // ------------------------------
+    if (new Date(checkIn) >= new Date(checkOut)) {
+      return res.status(400).json({ message: "Check-in must be before check-out" });
+    }
+
+    if (!roomSelection?.length) {
+      return res.status(400).json({ message: "Room selection is required" });
+    }
+
+    // Guest booking validation
+    if (!isAgencyBooking) {
+      if (!cleanFirstName || !cleanLastName) {
+        return res.status(400).json({ message: "Guest name is required" });
+      }
+      if (!cleanEmail || !validator.isEmail(cleanEmail)) {
+        return res.status(400).json({ message: "Valid guest email required" });
+      }
+      if (!cleanPhone || !validator.isLength(cleanPhone, { min: 5 })) {
+        return res.status(400).json({ message: "Valid phone number required" });
+      }
+    }
+
+    // --------------------------------
+    // 🚫 Block temporary emails
+    // --------------------------------
+    const tempDomains = ["mailinator.com", "tempmail.com", "10minutemail.com"];
+    if (cleanEmail) {
+      const domain = cleanEmail.split("@")[1];
+      if (tempDomains.includes(domain)) {
+        return res.status(400).json({ message: "Temporary emails are not allowed." });
+      }
+    }
+
+    // --------------------------------
+    // 🚫 Prevent reused transaction numbers
+    // --------------------------------
+    if (transactionNumber) {
+      const exists = await Booking.findOne({ transactionNumber });
+      if (exists) {
+        return res.status(400).json({ message: "Transaction number already used." });
+      }
+    }
+
+    // --------------------------------
+    // DATE + ROOM LOGIC (UNCHANGED)
+    // --------------------------------
     const ci = new Date(checkIn);
     const co = new Date(checkOut);
     const nights = Math.ceil((co - ci) / (1000 * 60 * 60 * 24));
@@ -82,25 +320,40 @@ exports.createBooking = async (req, res) => {
     });
 
     const usedRooms = bookedRooms.flatMap(b => b.assignedRoom || []).filter(Boolean);
-
     const freeRooms = allowedRooms.filter(r => !usedRooms.includes(r));
 
     if (freeRooms.length < roomQty) {
       return res.status(400).json({ message: `Not enough available rooms for ${roomType}` });
     }
 
-    const assignedRooms = freeRooms.slice(0, roomQty);
+    // --------------------------------
+    // ⭐ Race-condition recheck
+    // --------------------------------
+    const recheck = await Booking.find({
+      "rooms.roomType": roomType,
+      checkIn: { $lte: co },
+      checkOut: { $gte: ci },
+      status: { $in: ["pending", "confirmed", "guaranteed", "checked_in"] }
+    });
 
+    const recheckUsed = recheck.flatMap(b => b.assignedRoom || []).filter(Boolean);
+    const recheckFree = allowedRooms.filter(r => !recheckUsed.includes(r));
+
+    if (recheckFree.length < roomQty) {
+      return res.status(400).json({ message: "Room just got booked. Try again." });
+    }
+
+    const assignedRooms = freeRooms.slice(0, roomQty);
     const total = roomDoc.price * roomQty * nights;
 
-    // ------------------------------
-    // ⭐ FIXED — RN booking number
-    // ------------------------------
+   
+    //FIXED — RN booking number
+   
     const bookingNumber = await generateBookingNumber();
 
-    // ------------------------------
-    // STATUS LOGIC
-    // ------------------------------
+    // --------------------------------
+    // STATUS LOGIC (UNCHANGED)
+    // --------------------------------
     let finalStatus =
       statusOverride
         ? statusOverride
@@ -108,32 +361,31 @@ exports.createBooking = async (req, res) => {
         ? "confirmed"
         : "pending";
 
-    // ------------------------------
-    // CREATE BOOKING
-    // ------------------------------
+    // --------------------------------
+    // CREATE BOOKING (SANITIZED INPUTS)
+    // --------------------------------
     const booking = await Booking.create({
       bookingNumber,
 
-      firstName: isAgencyBooking ? "" : firstName,
-      lastName: isAgencyBooking ? "" : lastName,
-      email: isAgencyBooking ? "" : email,
+      firstName: isAgencyBooking ? "" : cleanFirstName,
+      lastName: isAgencyBooking ? "" : cleanLastName,
+      email: isAgencyBooking ? "" : cleanEmail,
 
-      country,
-      phoneNumber: isAgencyBooking ? "" : phone,
+      country: cleanCountry,
+      phoneNumber: isAgencyBooking ? "" : cleanPhone,
 
       isAgencyBooking,
-      agencyName: isAgencyBooking ? agencyName : "",
-      agentName: isAgencyBooking ? agentName : "",
-      agencyEmail: isAgencyBooking ? agencyEmail || "" : "",
-      agencyPhone: isAgencyBooking ? agencyPhone || "" : "",
+      agencyName: isAgencyBooking ? cleanAgencyName : "",
+      agentName: isAgencyBooking ? cleanAgentName : "",
+      agencyEmail: isAgencyBooking ? cleanAgencyEmail : "",
+      agencyPhone: isAgencyBooking ? cleanAgencyPhone : "",
 
       checkIn: ci,
       checkOut: co,
-      rooms: [
-        { roomType, quantity: roomQty, pricePerNight: roomDoc.price }
-      ],
+      rooms: [{ roomType, quantity: roomQty, pricePerNight: roomDoc.price }],
       meals,
-      specialRequest,
+
+      specialRequest: cleanSpecialRequest,
       totalPrice: total,
 
       status: finalStatus,
@@ -141,19 +393,19 @@ exports.createBooking = async (req, res) => {
       transactionNumber: transactionNumber || ""
     });
 
-    // ------------------------------
-    // EMAIL SEND — Styled HTML
-    // ------------------------------
+    // --------------------------------
+    // EMAIL SEND — SAME LOGIC
+    // --------------------------------
     try {
-      const recipient = isAgencyBooking ? agencyEmail : email;
+      const recipient = isAgencyBooking ? cleanAgencyEmail : cleanEmail;
 
       if (recipient) {
         const html = `
-          <div style="font-family: Arial, sans-serif; padding: 15px; background-color: #f9f9f9;">
-            <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; padding: 20px; border: 1px solid #ddd;">
+          <div style="font-family: Arial; padding: 15px; background-color: #f9f9f9;">
+            <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; padding: 20px;">
               <h2 style="color: #006600;">Booking Confirmation</h2>
 
-              <p>Dear <strong>${isAgencyBooking ? agentName : firstName}</strong>,</p>
+              <p>Dear <strong>${isAgencyBooking ? cleanAgentName : cleanFirstName}</strong>,</p>
 
               <p>Your booking has been successfully sent to admin.</p>
 
@@ -164,11 +416,6 @@ exports.createBooking = async (req, res) => {
               <p><strong>Check-out:</strong> ${co.toDateString()}</p>
               <p><strong>Nights:</strong> ${nights}</p>
               <p><strong>Total Price:</strong> Nu. ${total}</p>
-
-              <p style="margin-top: 20px;">
-                Best Regards,<br>
-                <strong>Hotel Management Team</strong>
-              </p>
             </div>
           </div>
         `;
@@ -180,24 +427,25 @@ exports.createBooking = async (req, res) => {
         );
       }
     } catch (emailErr) {
-      console.error("EMAIL SEND ERROR:", emailErr.message);
+      console.warn("Email send failed");
     }
+
     await addBookingToSheet(booking);
 
-
-    // ------------------------------
+    // --------------------------------
     // RESPONSE
-    // ------------------------------
+    // --------------------------------
     res.status(201).json({
       message: `Booking created successfully as ${finalStatus}`,
-      booking,
+      booking
     });
 
   } catch (err) {
-    console.error("Booking creation error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+    console.warn("Booking creation error");
+    res.status(500).json({ message: "Server error" }); // hide internal details
   }
 };
+
 // ASSIGN ROOM
 exports.assignRoom = async (req, res) => {
   try {
