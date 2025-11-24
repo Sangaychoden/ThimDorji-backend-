@@ -9,7 +9,7 @@ const roomSchema = new mongoose.Schema({
   size: { type: Number, required: true },
   beds: { type: Number, required: true },
   occupancy: { type: Number, required: true },
-  location: { type: String, required: true },
+  // location: { type: String, required: true },
 
   roomDetails: { type: String, required: true },
   roomFeatures: { type: String },
