@@ -258,17 +258,39 @@ exports.login = async (req, res) => {
 
 //LOGOUT
 
+// exports.logout = async (req, res) => {
+//   try {
+//     res.clearCookie("adminToken", {
+//       httpOnly: true,
+//       secure: process.env.NODE_ENV === "production",
+//       sameSite: "Strict",
+//       path: "/",
+//     });
+//     res.status(200).json({ message: "Logged out successfully" });
+//   } catch (err) {
+//     res.status(500).json({ message: "Logout failed", error: err.message });
+//   }
+// };
+// LOGOUT — Works for Admin & Receptionist
 exports.logout = async (req, res) => {
   try {
     res.clearCookie("adminToken", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "Strict",
-      path: "/",
+      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+      path: "/", // MUST match login cookie path
     });
-    res.status(200).json({ message: "Logged out successfully" });
+
+    return res.status(200).json({
+      success: true,
+      message: "Logged out successfully",
+    });
   } catch (err) {
-    res.status(500).json({ message: "Logout failed", error: err.message });
+    return res.status(500).json({
+      success: false,
+      message: "Logout failed",
+      error: err.message,
+    });
   }
 };
 
