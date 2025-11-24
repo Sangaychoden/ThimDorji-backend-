@@ -4,11 +4,19 @@ const router = express.Router();
 const bookingController = require("../controllers/bookingController");
 const rateLimit = require("express-rate-limit");
 
+// const bookingLimiter = rateLimit({
+//   windowMs: 10 * 60 * 1000, 
+//   max: 6,
+//   message: { message: "Too many booking attempts, please try again later." }
+// });
 const bookingLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, 
-  max: 6,
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,  // ⭐ REQUIRED
+  legacyHeaders: false,   // ⭐ REQUIRED
   message: { message: "Too many booking attempts, please try again later." }
 });
+
 
 
 const {
