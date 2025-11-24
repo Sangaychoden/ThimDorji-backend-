@@ -953,7 +953,7 @@ exports.getAvailableRoomsByDate = async (req, res) => {
       availableRooms.push({
         roomType: room.roomType,
         totalRooms: room.numberOfRooms,
-        bookedRooms,
+        bookedRooms: room.roomsBooked,
         reservedRooms: roomsReserved,
         availableRooms: availableCount,
         price: room.price,
