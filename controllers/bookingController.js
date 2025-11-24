@@ -1016,18 +1016,103 @@ exports.getAllCancelledBookings = async (_, res) => {
 };
 
 
+// // DASHBOARD STATS
+// exports.getDashboardStats = async (req, res) => {
+//   try {
+//     const totalBookings = await Booking.countDocuments();
+//     const localGuests = await Booking.countDocuments({ country: "Bhutan" });
+//     const foreignGuests = await Booking.countDocuments({
+//       country: { $ne: "Bhutan" },
+//     });
+
+//     res.status(200).json({
+//       totalBookings,
+//       localGuests,
+//       foreignGuests,
+//     });
+//   } catch (err) {
+//     console.error("Dashboard stats error:", err);
+//     res.status(500).json({ message: "Server error", error: err.message });
+//   }
+// };
+
+// // MONTHLY GRAPH DATA
+// exports.getMonthlyStats = async (req, res) => {
+//   try {
+//     const { year } = req.query;
+
+//     if (!year) {
+//       return res.status(400).json({ message: "Year is required" });
+//     }
+
+//     const months = [
+//       "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+//       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+//     ];
+
+//     const monthlyStats = months.map((m) => ({
+//       month: m,
+//       foreign: 0,
+//       local: 0,
+//     }));
+
+//     const startDate = new Date(`${year}-01-01`);
+//     const endDate = new Date(`${parseInt(year) + 1}-01-01`);
+
+//     const bookings = await Booking.find({
+//       createdAt: { $gte: startDate, $lt: endDate },
+//     }).select("country createdAt");
+
+//     bookings.forEach((b) => {
+//       const monthIndex = new Date(b.createdAt).getMonth();
+//       if (b.country && b.country.toLowerCase() === "bhutan") {
+//         monthlyStats[monthIndex].local += 1;
+//       } else {
+//         monthlyStats[monthIndex].foreign += 1;
+//       }
+//     });
+
+//     res.status(200).json(monthlyStats);
+//   } catch (err) {
+//     console.error("📊 Monthly stats error:", err);
+//     res.status(500).json({ message: "Server error", error: err.message });
+//   }
+// };
 // DASHBOARD STATS
 exports.getDashboardStats = async (req, res) => {
   try {
+    const SAARC_COUNTRIES = [
+      "Afghanistan",
+      "Bangladesh",
+      // "Bhutan",
+      "India",
+      "Maldives",
+      "Nepal",
+      "Pakistan",
+      "Sri Lanka"
+    ];
+
     const totalBookings = await Booking.countDocuments();
-    const localGuests = await Booking.countDocuments({ country: "Bhutan" });
+
+    // Local = Bhutan
+    const localGuests = await Booking.countDocuments({
+      country: "Bhutan",
+    });
+
+    // Regional = SAARC except Bhutan
+    const regionalGuests = await Booking.countDocuments({
+      country: { $in: SAARC_COUNTRIES.filter(c => c !== "Bhutan") }
+    });
+
+    // Foreign = NOT in SAARC
     const foreignGuests = await Booking.countDocuments({
-      country: { $ne: "Bhutan" },
+      country: { $nin: SAARC_COUNTRIES },
     });
 
     res.status(200).json({
       totalBookings,
       localGuests,
+      regionalGuests,
       foreignGuests,
     });
   } catch (err) {
@@ -1035,7 +1120,6 @@ exports.getDashboardStats = async (req, res) => {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
-
 // MONTHLY GRAPH DATA
 exports.getMonthlyStats = async (req, res) => {
   try {
@@ -1045,6 +1129,17 @@ exports.getMonthlyStats = async (req, res) => {
       return res.status(400).json({ message: "Year is required" });
     }
 
+    const SAARC_COUNTRIES = [
+      "Afghanistan",
+      "Bangladesh",
+      "Bhutan",
+      "India",
+      "Maldives",
+      "Nepal",
+      "Pakistan",
+      "Sri Lanka"
+    ];
+
     const months = [
       "Jan", "Feb", "Mar", "Apr", "May", "Jun",
       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
@@ -1052,8 +1147,9 @@ exports.getMonthlyStats = async (req, res) => {
 
     const monthlyStats = months.map((m) => ({
       month: m,
-      foreign: 0,
       local: 0,
+      regional: 0,
+      foreign: 0,
     }));
 
     const startDate = new Date(`${year}-01-01`);
@@ -1065,9 +1161,15 @@ exports.getMonthlyStats = async (req, res) => {
 
     bookings.forEach((b) => {
       const monthIndex = new Date(b.createdAt).getMonth();
-      if (b.country && b.country.toLowerCase() === "bhutan") {
+      const country = (b.country || "").trim();
+
+      if (country === "Bhutan") {
         monthlyStats[monthIndex].local += 1;
-      } else {
+      } 
+      else if (SAARC_COUNTRIES.includes(country)) {
+        monthlyStats[monthIndex].regional += 1;
+      } 
+      else {
         monthlyStats[monthIndex].foreign += 1;
       }
     });
