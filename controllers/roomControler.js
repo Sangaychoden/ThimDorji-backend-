@@ -253,15 +253,134 @@ exports.createRoom = async (req, res) => {
 //     });
 //   }
 // };
+// exports.updateRoom = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const room = await Room.findById(id);
+//     if (!room)
+//       return res.status(404).json({ success: false, message: "Room not found" });
+
+//     // FIELDS ALLOWED TO UPDATE
+//     const updatableFields = [
+//       "roomType",
+//       "price",
+//       "numberOfRooms",
+//       "size",
+//       "beds",
+//       "occupancy",
+//       "location",
+//       "roomDetails",
+//       "optional",
+//     ];
+
+//     // UPDATE BASIC FIELDS
+//     updatableFields.forEach((field) => {
+//       if (req.body[field] !== undefined && req.body[field] !== "") {
+//         if (["price", "numberOfRooms", "size", "beds", "occupancy"].includes(field)) {
+//           room[field] = Number(req.body[field]);
+//         } else {
+//           room[field] = validator.escape(validator.trim(req.body[field]));
+//         }
+//       }
+//     });
+
+//     // ⭐ UPDATE ROOM NUMBERS
+//     if (req.body.roomNumbers) {
+//       const roomNumbersArr = req.body.roomNumbers
+//         .split(",")
+//         .map((r) => r.trim())
+//         .filter((s) => s !== "");
+
+//       if (roomNumbersArr.length !== room.numberOfRooms) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Room numbers count (${roomNumbersArr.length}) does not match numberOfRooms (${room.numberOfRooms}).`
+//         });
+//       }
+
+//       room.roomNumbers = roomNumbersArr;
+//     }
+
+//     // ⭐ UPDATE ROOM FEATURES AS STRING
+//     if (req.body.roomFeatures) {
+//       if (Array.isArray(req.body.roomFeatures)) {
+//         room.roomFeatures = req.body.roomFeatures.join(", ");
+//       } else {
+//         room.roomFeatures = validator.escape(validator.trim(req.body.roomFeatures));
+//       }
+//     }
+
+//     // ⭐ UPDATE BATHROOM AMENITIES
+//     if (req.body.bathroomAmenities) {
+//       if (Array.isArray(req.body.bathroomAmenities)) {
+//         room.bathroomAmenities = req.body.bathroomAmenities.join(", ");
+//       } else {
+//         room.bathroomAmenities = validator.escape(
+//           validator.trim(req.body.bathroomAmenities)
+//         );
+//       }
+//     }
+
+//     // ⭐ UPDATE IMAGES (existing + new)
+//     let updatedImages = [];
+
+//     // EXISTING IMAGES FROM FRONTEND
+//     if (req.body.existingImages) {
+//       try {
+//         const parsed =
+//           typeof req.body.existingImages === "string"
+//             ? JSON.parse(req.body.existingImages)
+//             : req.body.existingImages;
+
+//         if (Array.isArray(parsed)) {
+//           updatedImages = parsed;
+//         }
+//       } catch (e) {
+//         console.log("Error parsing existingImages:", e.message);
+//       }
+//     }
+
+//     // NEW IMAGES UPLOADED
+//     if (req.files && req.files.length > 0) {
+//       const newImgs = await uploadImages(req.files);
+//       updatedImages = [...updatedImages, ...newImgs];
+//     }
+
+//     if (updatedImages.length > 0) {
+//       room.images = updatedImages;
+//     }
+
+//     // SAVE UPDATED ROOM
+//     await room.save();
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Room updated successfully",
+//       room,
+//     });
+//   } catch (error) {
+//     console.error("UPDATE ROOM ERROR:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while updating room",
+//       error: error.message,
+//     });
+//   }
+// };
 exports.updateRoom = async (req, res) => {
   try {
-    const { id } = req.params;
-    const room = await Room.findById(id);
-    if (!room)
-      return res.status(404).json({ success: false, message: "Room not found" });
+    const roomId = req.params.id;
+    const room = await Room.findById(roomId);
 
-    // FIELDS ALLOWED TO UPDATE
-    const updatableFields = [
+    if (!room) {
+      return res.status(404).json({
+        success: false,
+        message: "Room not found",
+      });
+    }
+
+    // ⭐ UPDATE GENERAL FIELDS
+    const fields = [
       "roomType",
       "price",
       "numberOfRooms",
@@ -273,40 +392,51 @@ exports.updateRoom = async (req, res) => {
       "optional",
     ];
 
-    // UPDATE BASIC FIELDS
-    updatableFields.forEach((field) => {
-      if (req.body[field] !== undefined && req.body[field] !== "") {
-        if (["price", "numberOfRooms", "size", "beds", "occupancy"].includes(field)) {
-          room[field] = Number(req.body[field]);
-        } else {
-          room[field] = validator.escape(validator.trim(req.body[field]));
-        }
+    fields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        room[field] = validator.escape(validator.trim(req.body[field]));
       }
     });
 
-    // ⭐ UPDATE ROOM NUMBERS
+    // ⭐ CLEAN + PARSE ROOM NUMBERS (FINAL FIX)
     if (req.body.roomNumbers) {
-      const roomNumbersArr = req.body.roomNumbers
-        .split(",")
-        .map((r) => r.trim())
-        .filter((s) => s !== "");
+      let roomNumbersArr = [];
 
-      if (roomNumbersArr.length !== room.numberOfRooms) {
+      // Try JSON parse first
+      try {
+        const parsed = JSON.parse(req.body.roomNumbers);
+
+        if (Array.isArray(parsed)) {
+          roomNumbersArr = parsed.map((x) => String(x).trim());
+        }
+      } catch {
+        // If not JSON, treat as "101, 102, 103"
+        roomNumbersArr = req.body.roomNumbers
+          .replace(/[\[\]\"]/g, "") // remove brackets & quotes
+          .split(",")
+          .map((r) => r.trim())
+          .filter((s) => s !== "");
+      }
+
+      // Validate number count
+      if (roomNumbersArr.length !== Number(room.numberOfRooms)) {
         return res.status(400).json({
           success: false,
-          message: `Room numbers count (${roomNumbersArr.length}) does not match numberOfRooms (${room.numberOfRooms}).`
+          message: `Room numbers count (${roomNumbersArr.length}) does not match numberOfRooms (${room.numberOfRooms}).`,
         });
       }
 
       room.roomNumbers = roomNumbersArr;
     }
 
-    // ⭐ UPDATE ROOM FEATURES AS STRING
+    // ⭐ UPDATE ROOM FEATURES
     if (req.body.roomFeatures) {
       if (Array.isArray(req.body.roomFeatures)) {
         room.roomFeatures = req.body.roomFeatures.join(", ");
       } else {
-        room.roomFeatures = validator.escape(validator.trim(req.body.roomFeatures));
+        room.roomFeatures = validator.escape(
+          validator.trim(req.body.roomFeatures)
+        );
       }
     }
 
@@ -321,10 +451,10 @@ exports.updateRoom = async (req, res) => {
       }
     }
 
-    // ⭐ UPDATE IMAGES (existing + new)
+    // ⭐ IMAGE HANDLING
     let updatedImages = [];
 
-    // EXISTING IMAGES FROM FRONTEND
+    // Existing images
     if (req.body.existingImages) {
       try {
         const parsed =
@@ -340,7 +470,7 @@ exports.updateRoom = async (req, res) => {
       }
     }
 
-    // NEW IMAGES UPLOADED
+    // New uploaded images
     if (req.files && req.files.length > 0) {
       const newImgs = await uploadImages(req.files);
       updatedImages = [...updatedImages, ...newImgs];
@@ -350,7 +480,7 @@ exports.updateRoom = async (req, res) => {
       room.images = updatedImages;
     }
 
-    // SAVE UPDATED ROOM
+    // ⭐ SAVE ROOM
     await room.save();
 
     res.status(200).json({
@@ -367,6 +497,7 @@ exports.updateRoom = async (req, res) => {
     });
   }
 };
+
 
 // ---------------- Get all rooms ----------------
 exports.getAllRooms = async (req, res) => {
